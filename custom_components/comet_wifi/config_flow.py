@@ -20,11 +20,13 @@ from .const import (
     CONF_POLL_INTERVAL,
     DEFAULT_PREFIX,
     DEFAULT_POLL_INTERVAL,
+    PAYLOAD_POLL_ALL,
+    REG_POLL,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-DISCOVERY_TIMEOUT = 10
+DISCOVERY_TIMEOUT = 30
 
 
 class CometWifiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -60,6 +62,10 @@ class CometWifiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_discover(self, user_input=None):
         """Discover Comet WiFi devices on MQTT."""
         if user_input is not None:
+            if user_input.get("device") == "_retry":
+                # Re-run discovery
+                return await self.async_step_discover()
+
             # User selected a device
             device_key = user_input["device"]
             device = self._discovered_devices[device_key]
@@ -82,15 +88,22 @@ class CometWifiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Scan for devices
         self._discovered_devices = {}
-        unsubscribe = None
+        unsubscribes = []
 
         @callback
         def message_received(msg):
             """Handle discovery messages."""
-            parts = msg.topic.split("/")
+            topic = msg.topic
+            # Skip system topics
+            if topic.startswith("$"):
+                return
+            parts = topic.split("/")
             if len(parts) == 5:
                 prefix, account_id, device_id, direction, register = parts
-                if direction == "V":
+                # Accept both V (value) and S (set/retained) messages
+                if direction in ("V", "S") and re.match(
+                    r"^[0-9A-Fa-f]+$", account_id
+                ):
                     key = f"{prefix}/{account_id}/{device_id}"
                     if key not in self._discovered_devices:
                         self._discovered_devices[key] = {
@@ -101,17 +114,31 @@ class CometWifiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         _LOGGER.debug("Discovered Comet WiFi: %s", key)
 
         try:
-            unsubscribe = await mqtt.async_subscribe(
-                self.hass, "+/+/+/V/#", message_received
+            # Subscribe to all topics to catch retained messages too
+            unsub = await mqtt.async_subscribe(
+                self.hass, "#", message_received
             )
+            unsubscribes.append(unsub)
+
+            # Trigger polls on any already-known devices from other entries
+            for entry in self._async_current_entries():
+                if entry.data.get(CONF_DEVICE_ID):
+                    prefix = entry.data.get(CONF_TOPIC_PREFIX, DEFAULT_PREFIX)
+                    acc = entry.data[CONF_ACCOUNT_ID]
+                    dev = entry.data[CONF_DEVICE_ID]
+                    poll_topic = f"{prefix}/{acc}/{dev}/S/{REG_POLL}"
+                    await mqtt.async_publish(
+                        self.hass, poll_topic, PAYLOAD_POLL_ALL
+                    )
+
             await asyncio.sleep(DISCOVERY_TIMEOUT)
         finally:
-            if unsubscribe:
-                unsubscribe()
+            for unsub in unsubscribes:
+                unsub()
 
         if not self._discovered_devices:
             return self.async_show_form(
-                step_id="discover",
+                step_id="not_found",
                 data_schema=vol.Schema({}),
                 errors={"base": "no_devices_found"},
             )
@@ -142,6 +169,28 @@ class CometWifiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required("device"): vol.In(device_options),
+                }
+            ),
+        )
+
+    async def async_step_not_found(self, user_input=None):
+        """Handle case when no devices found - offer retry or manual."""
+        if user_input is not None:
+            next_step = user_input.get("next_step", "manual")
+            if next_step == "retry":
+                return await self.async_step_discover()
+            return await self.async_step_manual()
+
+        return self.async_show_form(
+            step_id="not_found",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("next_step", default="retry"): vol.In(
+                        {
+                            "retry": "Erneut suchen",
+                            "manual": "Manuell eingeben",
+                        }
+                    ),
                 }
             ),
         )

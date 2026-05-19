@@ -14,9 +14,16 @@
           "device": "Device"
         }
       },
+      "not_found": {
+        "title": "No devices found",
+        "description": "Tip: Turn the thermostat dial to trigger an MQTT message, then try again.",
+        "data": {
+          "next_step": "Next step"
+        }
+      },
       "manual": {
         "title": "Manual setup",
-        "description": "Read device info from MQTT topic: {prefix}/{account_id}/{device_id}/V/A0",
+        "description": "Read device info from MQTT topic: prefix/account_id/device_id/V/A0",
         "data": {
           "name": "Name",
           "topic_prefix": "Topic prefix",

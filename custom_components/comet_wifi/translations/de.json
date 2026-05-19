@@ -14,9 +14,16 @@
           "device": "Gerät"
         }
       },
+      "not_found": {
+        "title": "Keine Geräte gefunden",
+        "description": "Tipp: Am Thermostat das Rad drehen, um eine MQTT-Nachricht auszulösen, dann erneut suchen.",
+        "data": {
+          "next_step": "Nächster Schritt"
+        }
+      },
       "manual": {
         "title": "Manuell hinzufügen",
-        "description": "Geräte-Infos aus dem MQTT-Topic ablesen: {prefix}/{account_id}/{device_id}/V/A0",
+        "description": "Geräte-Infos aus dem MQTT-Topic ablesen: prefix/account_id/device_id/V/A0",
         "data": {
           "name": "Name",
           "topic_prefix": "Topic-Prefix",
