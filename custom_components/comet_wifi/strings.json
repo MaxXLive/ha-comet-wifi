@@ -2,7 +2,20 @@
   "config": {
     "step": {
       "user": {
-        "title": "Comet WiFi Thermostat hinzufügen",
+        "title": "Comet WiFi Thermostat",
+        "data": {
+          "setup_method": "Einrichtungsmethode"
+        }
+      },
+      "discover": {
+        "title": "Gefundene Geräte",
+        "description": "Folgende Comet WiFi Thermostate wurden im MQTT-Broker gefunden:",
+        "data": {
+          "device": "Gerät"
+        }
+      },
+      "manual": {
+        "title": "Manuell hinzufügen",
         "description": "Geräte-Infos aus dem MQTT-Topic ablesen: {prefix}/{account_id}/{device_id}/V/A0",
         "data": {
           "name": "Name",
@@ -15,10 +28,12 @@
     },
     "error": {
       "invalid_device_id": "Ungültige Geräte-ID (nur Hex-Zeichen erlaubt)",
-      "invalid_account_id": "Ungültige Account-ID (nur Hex-Zeichen erlaubt)"
+      "invalid_account_id": "Ungültige Account-ID (nur Hex-Zeichen erlaubt)",
+      "no_devices_found": "Keine Geräte gefunden. Ist das Thermostat eingeschaltet und mit dem MQTT-Broker verbunden?"
     },
     "abort": {
-      "already_configured": "Dieses Gerät ist bereits konfiguriert"
+      "already_configured": "Dieses Gerät ist bereits konfiguriert",
+      "all_devices_configured": "Alle gefundenen Geräte sind bereits eingerichtet"
     }
   }
 }
