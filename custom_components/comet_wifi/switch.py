@@ -8,18 +8,33 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import (
-    DOMAIN,
-    MANUFACTURER,
-    MODEL,
-    REG_OPTIONS,
-    PAYLOAD_KEYLOCK_ON,
-    PAYLOAD_KEYLOCK_OFF,
-    PAYLOAD_ROTATE_ON,
-    PAYLOAD_ROTATE_OFF,
-    PAYLOAD_SUMMER_ON,
-    PAYLOAD_SUMMER_OFF,
-)
+from .const import DOMAIN, MANUFACTURER, MODEL, REG_OPTIONS
+
+# A3 flags bitfield (byte0 & 0x07):
+FLAG_SUMMER = 0x01   # bit 0
+FLAG_ROTATE = 0x02   # bit 1
+FLAG_KEYLOCK = 0x04  # bit 2
+
+
+def build_a3_payload(flags: int) -> str:
+    """Build A3 SET payload from flags bitfield.
+
+    Formula: byte0 = 0x20 | flags, byte1 = (~flags) & 0x07, byte2 = 0x00
+    """
+    byte0 = 0x20 | (flags & 0x07)
+    byte1 = (~flags) & 0x07
+    return f"#{byte0:02X}{byte1:02X}00"
+
+
+def parse_a3_flags(value: str) -> int | None:
+    """Parse current flags from A3 READ value. Returns flags bitfield."""
+    if not value or len(value) < 3:
+        return None
+    try:
+        byte0 = int(value[1:3], 16)
+        return byte0 & 0x07
+    except (ValueError, IndexError):
+        return None
 
 
 async def async_setup_entry(
@@ -32,41 +47,34 @@ async def async_setup_entry(
     async_add_entities(
         [
             CometWifiSwitch(
-                device,
-                entry,
-                key="keylock",
-                name="Tastensperre",
-                icon="mdi:lock",
-                payload_on=PAYLOAD_KEYLOCK_ON,
-                payload_off=PAYLOAD_KEYLOCK_OFF,
-            ),
-            CometWifiSwitch(
-                device,
-                entry,
-                key="rotate",
-                name="Display drehen",
-                icon="mdi:screen-rotation",
-                payload_on=PAYLOAD_ROTATE_ON,
-                payload_off=PAYLOAD_ROTATE_OFF,
-            ),
-            CometWifiSwitch(
-                device,
-                entry,
+                device, entry,
                 key="summer",
                 name="Sommermodus",
                 icon="mdi:white-balance-sunny",
-                payload_on=PAYLOAD_SUMMER_ON,
-                payload_off=PAYLOAD_SUMMER_OFF,
+                flag_bit=FLAG_SUMMER,
+            ),
+            CometWifiSwitch(
+                device, entry,
+                key="rotate",
+                name="Display drehen",
+                icon="mdi:screen-rotation",
+                flag_bit=FLAG_ROTATE,
+            ),
+            CometWifiSwitch(
+                device, entry,
+                key="keylock",
+                name="Tastensperre",
+                icon="mdi:lock",
+                flag_bit=FLAG_KEYLOCK,
             ),
         ]
     )
 
 
 class CometWifiSwitch(SwitchEntity):
-    """Comet WiFi option switch."""
+    """Comet WiFi option switch with read-modify-write on A3 register."""
 
     _attr_has_entity_name = True
-    _attr_assumed_state = True
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
@@ -76,15 +84,12 @@ class CometWifiSwitch(SwitchEntity):
         key: str,
         name: str,
         icon: str,
-        payload_on: str,
-        payload_off: str,
+        flag_bit: int,
     ) -> None:
         """Initialize the switch."""
         self._device = device
         self._key = key
-        self._payload_on = payload_on
-        self._payload_off = payload_off
-        self._is_on = False
+        self._flag_bit = flag_bit
 
         self._attr_name = name
         self._attr_icon = icon
@@ -103,39 +108,36 @@ class CometWifiSwitch(SwitchEntity):
 
     @callback
     def _handle_update(self) -> None:
-        """Handle updated data - try to parse A3 for switch state."""
-        value = self._device.get_value(REG_OPTIONS)
-        if value and len(value) >= 5:
-            try:
-                # Parse A3 register as bitfield
-                raw = int(value[1:], 16)
-                # Bit mapping (derived from known payloads):
-                # Bit 2 (0x04): keylock
-                # Bit 8 (0x100): rotate display
-                # Bit 7 (0x80): summer mode
-                if self._key == "keylock":
-                    self._is_on = bool(raw & 0x04)
-                elif self._key == "rotate":
-                    self._is_on = bool(raw & 0x100)
-                elif self._key == "summer":
-                    self._is_on = bool(raw & 0x80)
-            except (ValueError, IndexError):
-                pass
+        """Handle updated data from device."""
         self.async_write_ha_state()
 
     @property
-    def is_on(self) -> bool:
-        """Return true if switch is on."""
-        return self._is_on
+    def is_on(self) -> bool | None:
+        """Return true if switch is on, based on actual A3 register."""
+        flags = parse_a3_flags(self._device.get_value(REG_OPTIONS))
+        if flags is None:
+            return None
+        return bool(flags & self._flag_bit)
+
+    @property
+    def available(self) -> bool:
+        """Return True if A3 has been read at least once."""
+        return self._device.get_value(REG_OPTIONS) is not None
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Turn the switch on."""
-        await self._device.async_set_register(REG_OPTIONS, self._payload_on)
-        self._is_on = True
-        self.async_write_ha_state()
+        """Turn the switch on using read-modify-write."""
+        current_flags = parse_a3_flags(self._device.get_value(REG_OPTIONS))
+        if current_flags is None:
+            current_flags = 0
+        new_flags = current_flags | self._flag_bit
+        payload = build_a3_payload(new_flags)
+        await self._device.async_set_register(REG_OPTIONS, payload)
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Turn the switch off."""
-        await self._device.async_set_register(REG_OPTIONS, self._payload_off)
-        self._is_on = False
-        self.async_write_ha_state()
+        """Turn the switch off using read-modify-write."""
+        current_flags = parse_a3_flags(self._device.get_value(REG_OPTIONS))
+        if current_flags is None:
+            current_flags = 0
+        new_flags = current_flags & ~self._flag_bit
+        payload = build_a3_payload(new_flags)
+        await self._device.async_set_register(REG_OPTIONS, payload)

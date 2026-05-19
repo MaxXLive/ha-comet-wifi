@@ -190,9 +190,9 @@ class CometWifiIPSensor(CometWifiBaseSensor):
 
 
 class CometWifiOptionsSensor(CometWifiBaseSensor):
-    """Options register sensor (raw value for debugging)."""
+    """Options register sensor showing decoded flags."""
 
-    _attr_name = "Optionen (Register A3)"
+    _attr_name = "Optionen"
     _attr_icon = "mdi:cog"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -203,8 +203,23 @@ class CometWifiOptionsSensor(CometWifiBaseSensor):
 
     @property
     def native_value(self) -> str | None:
-        """Return the raw options register value."""
-        return self._device.get_value(REG_OPTIONS)
+        """Return decoded flags from A3 register."""
+        value = self._device.get_value(REG_OPTIONS)
+        if not value or len(value) < 3:
+            return None
+        try:
+            byte0 = int(value[1:3], 16)
+            flags = byte0 & 0x07
+            parts = []
+            if flags & 0x04:
+                parts.append("Tastensperre")
+            if flags & 0x02:
+                parts.append("Display gedreht")
+            if flags & 0x01:
+                parts.append("Sommermodus")
+            return ", ".join(parts) if parts else "Keine"
+        except (ValueError, IndexError):
+            return value
 
 
 class CometWifiTempOffsetSensor(CometWifiBaseSensor):
