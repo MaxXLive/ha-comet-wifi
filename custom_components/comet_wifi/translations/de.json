@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Comet WiFi Thermostat hinzufügen",
+        "description": "Geräte-Infos aus dem MQTT-Topic ablesen: {prefix}/{account_id}/{device_id}/V/A0",
+        "data": {
+          "name": "Name",
+          "topic_prefix": "Topic-Prefix",
+          "account_id": "Account-ID",
+          "device_id": "Geräte-ID (MAC)",
+          "poll_interval": "Abfrage-Intervall (Minuten)"
+        }
+      }
+    },
+    "error": {
+      "invalid_device_id": "Ungültige Geräte-ID (nur Hex-Zeichen erlaubt)",
+      "invalid_account_id": "Ungültige Account-ID (nur Hex-Zeichen erlaubt)"
+    },
+    "abort": {
+      "already_configured": "Dieses Gerät ist bereits konfiguriert"
+    }
+  }
+}

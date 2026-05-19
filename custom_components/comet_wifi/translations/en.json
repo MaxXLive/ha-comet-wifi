@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add Comet WiFi Thermostat",
+        "description": "Read device info from MQTT topic: {prefix}/{account_id}/{device_id}/V/A0",
+        "data": {
+          "name": "Name",
+          "topic_prefix": "Topic prefix",
+          "account_id": "Account ID",
+          "device_id": "Device ID (MAC)",
+          "poll_interval": "Poll interval (minutes)"
+        }
+      }
+    },
+    "error": {
+      "invalid_device_id": "Invalid device ID (only hex characters allowed)",
+      "invalid_account_id": "Invalid account ID (only hex characters allowed)"
+    },
+    "abort": {
+      "already_configured": "This device is already configured"
+    }
+  }
+}
