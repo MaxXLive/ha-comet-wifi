@@ -1,14 +1,34 @@
 """Sensor platform for Comet WiFi Thermostat."""
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import (
+    SensorEntity,
+    SensorDeviceClass,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, MANUFACTURER, MODEL, REG_BATTERY, REG_OPTIONS
+from .const import DOMAIN, MANUFACTURER, MODEL
+
+
+# Register constants
+REG_BATTERY = "BD"
+REG_OPTIONS = "A3"
+REG_RSSI = "B3"
+REG_FIRMWARE = "B2"
+REG_DEVICE_NAME = "B1"
+REG_NETWORK = "B6"
+REG_TEMP_OFFSET = "A2"
+REG_WINDOW_OPEN = "A5"
 
 
 async def async_setup_entry(
@@ -21,25 +41,29 @@ async def async_setup_entry(
     async_add_entities(
         [
             CometWifiBatterySensor(device, entry),
+            CometWifiRssiSensor(device, entry),
+            CometWifiFirmwareSensor(device, entry),
+            CometWifiIPSensor(device, entry),
             CometWifiOptionsSensor(device, entry),
+            CometWifiTempOffsetSensor(device, entry),
+            CometWifiWindowOpenSensor(device, entry),
         ]
     )
 
 
-class CometWifiBatterySensor(SensorEntity):
-    """Battery status sensor."""
+class CometWifiBaseSensor(SensorEntity):
+    """Base class for Comet WiFi sensors."""
 
     _attr_has_entity_name = True
-    _attr_name = "Batterie"
-    _attr_icon = "mdi:battery"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, device, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
         self._device = device
-        self._attr_unique_id = f"comet_wifi_{device.device_id}_battery"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device.device_id)},
+            name=entry.data.get("name", f"Comet WiFi {device.device_id}"),
+            manufacturer=MANUFACTURER,
+            model=MODEL,
         )
 
     async def async_added_to_hass(self) -> None:
@@ -55,42 +79,185 @@ class CometWifiBatterySensor(SensorEntity):
         """Handle updated data."""
         self.async_write_ha_state()
 
+
+class CometWifiBatterySensor(CometWifiBaseSensor):
+    """Battery level sensor."""
+
+    _attr_name = "Batterie"
+    _attr_icon = "mdi:battery"
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_battery"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return battery percentage from BD register."""
+        value = self._device.get_value(REG_BATTERY)
+        if not value or len(value) < 3:
+            return None
+        try:
+            # BD format: first byte is battery level
+            level = int(value[1:3], 16)
+            # Clamp to 0-100 range
+            return min(100, max(0, level))
+        except (ValueError, IndexError):
+            return None
+
+
+class CometWifiRssiSensor(CometWifiBaseSensor):
+    """WiFi signal strength sensor."""
+
+    _attr_name = "WiFi Signal"
+    _attr_icon = "mdi:wifi"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_rssi"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return RSSI from B3 register."""
+        value = self._device.get_value(REG_RSSI)
+        if not value:
+            return None
+        try:
+            # B3 format: #-58 (includes sign)
+            return int(value[1:])
+        except (ValueError, IndexError):
+            return None
+
+
+class CometWifiFirmwareSensor(CometWifiBaseSensor):
+    """Firmware version sensor."""
+
+    _attr_name = "Firmware"
+    _attr_icon = "mdi:information-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_firmware"
+
     @property
     def native_value(self) -> str | None:
-        """Return the raw battery register value."""
-        return self._device.get_value(REG_BATTERY)
+        """Return firmware version from B2 register (ASCII encoded)."""
+        value = self._device.get_value(REG_FIRMWARE)
+        if not value or len(value) < 3:
+            return None
+        try:
+            return bytes.fromhex(value[1:]).decode("ascii")
+        except (ValueError, UnicodeDecodeError):
+            return value
 
 
-class CometWifiOptionsSensor(SensorEntity):
-    """Options register sensor."""
+class CometWifiIPSensor(CometWifiBaseSensor):
+    """IP address sensor."""
 
-    _attr_has_entity_name = True
-    _attr_name = "Optionen"
+    _attr_name = "IP-Adresse"
+    _attr_icon = "mdi:ip-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_ip"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return IP address from B6 register."""
+        value = self._device.get_value(REG_NETWORK)
+        if not value or len(value) < 11:
+            return None
+        try:
+            # B6 format: #00XXYYZZ... where XX.YY.ZZ.WW is IP at bytes 1-4
+            hex_str = value[3:11]  # Skip # and first byte (00)
+            octets = [int(hex_str[i : i + 2], 16) for i in range(0, 8, 2)]
+            return f"{octets[0]}.{octets[1]}.{octets[2]}.{octets[3]}"
+        except (ValueError, IndexError):
+            return value
+
+
+class CometWifiOptionsSensor(CometWifiBaseSensor):
+    """Options register sensor (raw value for debugging)."""
+
+    _attr_name = "Optionen (Register A3)"
     _attr_icon = "mdi:cog"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, device, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
-        self._device = device
+        super().__init__(device, entry)
         self._attr_unique_id = f"comet_wifi_{device.device_id}_options"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, device.device_id)},
-        )
-
-    async def async_added_to_hass(self) -> None:
-        """Subscribe to device updates."""
-        self._device.add_listener(self._handle_update)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Unsubscribe from device updates."""
-        self._device.remove_listener(self._handle_update)
-
-    @callback
-    def _handle_update(self) -> None:
-        """Handle updated data."""
-        self.async_write_ha_state()
 
     @property
     def native_value(self) -> str | None:
         """Return the raw options register value."""
         return self._device.get_value(REG_OPTIONS)
+
+
+class CometWifiTempOffsetSensor(CometWifiBaseSensor):
+    """Temperature offset sensor."""
+
+    _attr_name = "Temperatur-Offset"
+    _attr_icon = "mdi:thermometer-plus"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_temp_offset"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return temperature offset from A2 register."""
+        value = self._device.get_value(REG_TEMP_OFFSET)
+        if not value or len(value) < 3:
+            return None
+        try:
+            raw = int(value[1:3], 16)
+            # Signed byte: offset in 0.5°C steps
+            if raw > 127:
+                raw -= 256
+            return raw / 2
+        except (ValueError, IndexError):
+            return None
+
+
+class CometWifiWindowOpenSensor(CometWifiBaseSensor):
+    """Window open detection settings sensor."""
+
+    _attr_name = "Fenster-Offen Einstellung"
+    _attr_icon = "mdi:window-open-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_window_open"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return window-open settings from A5 (temp drop °C, duration min)."""
+        value = self._device.get_value(REG_WINDOW_OPEN)
+        if not value or len(value) < 5:
+            return None
+        try:
+            # A5 format: #XXYY → XX=temp drop in °C, YY=duration in minutes
+            temp_drop = int(value[1:3], 16)
+            duration = int(value[3:5], 16)
+            return f"-{temp_drop}°C / {duration} Min"
+        except (ValueError, IndexError):
+            return value
