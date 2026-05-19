@@ -29,6 +29,10 @@ REG_DEVICE_NAME = "B1"
 REG_NETWORK = "B6"
 REG_TEMP_OFFSET = "A2"
 REG_WINDOW_OPEN = "A5"
+REG_VALVE = "BE"
+REG_COMFORT_TEMP = "A6"
+REG_BSSID = "BA"
+REG_SCHEDULE_STATE = "A4"
 
 
 async def async_setup_entry(
@@ -47,6 +51,10 @@ async def async_setup_entry(
             CometWifiOptionsSensor(device, entry),
             CometWifiTempOffsetSensor(device, entry),
             CometWifiWindowOpenSensor(device, entry),
+            CometWifiValveSensor(device, entry),
+            CometWifiComfortTempSensor(device, entry),
+            CometWifiBssidSensor(device, entry),
+            CometWifiScheduleStateSensor(device, entry),
         ]
     )
 
@@ -274,5 +282,109 @@ class CometWifiWindowOpenSensor(CometWifiBaseSensor):
             temp_drop = int(value[1:3], 16)
             duration = int(value[3:5], 16)
             return f"-{temp_drop}°C / {duration} Min"
+        except (ValueError, IndexError):
+            return value
+
+
+class CometWifiValveSensor(CometWifiBaseSensor):
+    """Valve/motor position sensor."""
+
+    _attr_name = "Ventilposition"
+    _attr_icon = "mdi:valve"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_valve"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return valve position from BE register (byte1 = 0-100%)."""
+        value = self._device.get_value(REG_VALVE)
+        if not value or len(value) < 5:
+            return None
+        try:
+            # BE format: #XXYYZZ → byte1 (YY) = valve position percentage
+            position = int(value[3:5], 16)
+            return min(100, max(0, position))
+        except (ValueError, IndexError):
+            return None
+
+
+class CometWifiComfortTempSensor(CometWifiBaseSensor):
+    """Comfort temperature sensor."""
+
+    _attr_name = "Komfort-Temperatur"
+    _attr_icon = "mdi:thermometer-high"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_comfort_temp"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return comfort temperature from A6 register (same encoding as A0)."""
+        value = self._device.get_value(REG_COMFORT_TEMP)
+        if not value or len(value) < 3:
+            return None
+        try:
+            raw = int(value[1:3], 16)
+            return raw / 2
+        except (ValueError, IndexError):
+            return None
+
+
+class CometWifiBssidSensor(CometWifiBaseSensor):
+    """Router BSSID/MAC sensor."""
+
+    _attr_name = "Router-MAC"
+    _attr_icon = "mdi:router-wireless"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_bssid"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return router BSSID from BA register."""
+        value = self._device.get_value(REG_BSSID)
+        if not value or len(value) < 3:
+            return None
+        # BA format: #XX:XX:XX:XX:XX:XX (MAC address as text)
+        return value[1:]
+
+
+class CometWifiScheduleStateSensor(CometWifiBaseSensor):
+    """Schedule/heating profile state sensor."""
+
+    _attr_name = "Heizprofil-Status"
+    _attr_icon = "mdi:calendar-clock"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(device, entry)
+        self._attr_unique_id = f"comet_wifi_{device.device_id}_schedule_state"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return schedule state from A4 register."""
+        value = self._device.get_value(REG_SCHEDULE_STATE)
+        if not value or len(value) < 3:
+            return None
+        try:
+            # A4 format: #XXYYZZZZ... byte0 = mode
+            mode_byte = int(value[1:3], 16)
+            modes = {0: "Aus", 1: "Manuell", 2: "Automatik"}
+            return modes.get(mode_byte, f"Modus {mode_byte}")
         except (ValueError, IndexError):
             return value
