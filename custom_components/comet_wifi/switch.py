@@ -4,12 +4,14 @@ from __future__ import annotations
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
+    MANUFACTURER,
+    MODEL,
     REG_OPTIONS,
     PAYLOAD_KEYLOCK_ON,
     PAYLOAD_KEYLOCK_OFF,
@@ -61,7 +63,7 @@ async def async_setup_entry(
 
 
 class CometWifiSwitch(SwitchEntity):
-    """Comet WiFi option switch (optimistic)."""
+    """Comet WiFi option switch."""
 
     _attr_has_entity_name = True
     _attr_assumed_state = True
@@ -79,6 +81,7 @@ class CometWifiSwitch(SwitchEntity):
     ) -> None:
         """Initialize the switch."""
         self._device = device
+        self._key = key
         self._payload_on = payload_on
         self._payload_off = payload_off
         self._is_on = False
@@ -89,6 +92,36 @@ class CometWifiSwitch(SwitchEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device.device_id)},
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to device updates."""
+        self._device.add_listener(self._handle_update)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unsubscribe from device updates."""
+        self._device.remove_listener(self._handle_update)
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle updated data - try to parse A3 for switch state."""
+        value = self._device.get_value(REG_OPTIONS)
+        if value and len(value) >= 5:
+            try:
+                # Parse A3 register as bitfield
+                raw = int(value[1:], 16)
+                # Bit mapping (derived from known payloads):
+                # Bit 2 (0x04): keylock
+                # Bit 8 (0x100): rotate display
+                # Bit 7 (0x80): summer mode
+                if self._key == "keylock":
+                    self._is_on = bool(raw & 0x04)
+                elif self._key == "rotate":
+                    self._is_on = bool(raw & 0x100)
+                elif self._key == "summer":
+                    self._is_on = bool(raw & 0x80)
+            except (ValueError, IndexError):
+                pass
+        self.async_write_ha_state()
 
     @property
     def is_on(self) -> bool:

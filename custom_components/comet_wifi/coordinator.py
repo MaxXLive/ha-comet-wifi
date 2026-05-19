@@ -1,6 +1,7 @@
 """Comet WiFi device coordinator."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Callable
@@ -122,11 +123,14 @@ class CometWifiDevice:
     async def async_set_register(self, register: str, payload: str) -> None:
         """Set a register value on the device."""
         topic = f"{self.base_topic}/S/{register}"
-        await mqtt.async_publish(self.hass, topic, payload, retain=True)
+        await mqtt.async_publish(self.hass, topic, payload)
+        # Poll after setting to get confirmed state
+        await asyncio.sleep(2)
+        await self.async_poll_all()
 
     async def _async_poll(self, _now=None) -> None:
         """Periodic poll callback."""
-        await self.async_poll_temp()
+        await self.async_poll_all()
 
     @staticmethod
     def hex_to_temp(value: str) -> float | None:
@@ -139,4 +143,4 @@ class CometWifiDevice:
     @staticmethod
     def temp_to_hex(temp: float) -> str:
         """Convert temperature in °C to hex string like '#20'."""
-        return f"#{int(temp * 2):02x}"
+        return f"#{int(temp * 2):02X}"

@@ -32,7 +32,7 @@ PAYLOAD_SUMMER_ON = "#230400"
 PAYLOAD_SUMMER_OFF = "#220500"
 
 # Poll payloads
-PAYLOAD_POLL_ALL = "#0b"
+PAYLOAD_POLL_ALL = "#FFFFFFFF"
 PAYLOAD_POLL_TEMP = "#02000000"
 
 PLATFORMS = ["climate", "sensor", "switch", "button"]
