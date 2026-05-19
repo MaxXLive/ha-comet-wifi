@@ -102,10 +102,10 @@ class CometWifiBatterySensor(CometWifiBaseSensor):
         if not value or len(value) < 3:
             return None
         try:
-            # BD format: first byte is battery level
+            # BD format: first byte is battery level on scale 0-8 (8=full)
             level = int(value[1:3], 16)
-            # Clamp to 0-100 range
-            return min(100, max(0, level))
+            percentage = round(level / 8 * 100)
+            return min(100, max(0, percentage))
         except (ValueError, IndexError):
             return None
 
