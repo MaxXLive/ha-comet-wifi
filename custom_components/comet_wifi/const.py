@@ -18,6 +18,7 @@ REG_CURRENT_TEMP = "A1"
 REG_TEMP_OFFSET = "A2"
 REG_OPTIONS = "A3"
 REG_WINDOW_OPEN = "A5"
+REG_COMFORT_TEMP = "A6"
 REG_HOLIDAY = "A7"
 REG_BATTERY = "BD"
 REG_POLL = "AF"
@@ -32,4 +33,4 @@ FLAG_KEYLOCK = 0x04  # bit 2
 PAYLOAD_POLL_ALL = "#FFFFFFFF"
 PAYLOAD_POLL_TEMP = "#02000000"
 
-PLATFORMS = ["climate", "sensor", "switch", "button"]
+PLATFORMS = ["climate", "sensor", "switch", "button", "number"]
